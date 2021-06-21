@@ -3,6 +3,7 @@
    [goog.dom :as gdom]
    [goog.events :as gevents]
    [reagent.core :as reagent :refer [atom]]
+   [reagent.ratom]
    [reagent.dom :as rdom]
    [clojure.core.async :as a]))
 
@@ -10,7 +11,7 @@
 
 (def events-ch (a/chan))
 
-(defn dispatch [event]
+(defn dispatch! [event]
   (a/put! events-ch event))
 
 (defonce app-state (atom {:state :start :db {}}))
@@ -21,18 +22,16 @@
 (def fsm {:start        {:init :loading}
           :loading      {:received     :ready
                          :status-error :server-error
-                         :reset :start}
+                         :reset        :start}
           :server-error {:retry :loading
                          :reset :start}
           :ready        {:reset :start}})
 
 (defonce keydown-listener
   (gevents/listen js/document "keydown"
-                  #(dispatch [:keydown (.-key %)])))
+                  #(dispatch! [:keydown (.-key %)])))
 
-(defmulti handle-event (fn [_db event] (first event)))
-
-(defmethod handle-event :init
+(defn handle-init
   [_db _event]
   (println "Retrieving data...")
   {:transition :init
@@ -41,101 +40,138 @@
                 :on-success [:good-http-result]
                 :on-failure [:bad-http-result]}})
 
-(defmethod handle-event :good-http-result
+(defn handle-good-http-result
   [db [_event-type data]]
   (println "Retrieved data" data)
-  {:db (assoc db :http data)
+  {:db         (assoc db :http (:body data))
    :transition :received})
 
-(defmethod handle-event :bad-http-result
+(defn handle-bad-http-result
   [db [_event-type data]]
   (println "Error retrieving data" data)
-  {:db (assoc db :http data)
+  {:db         (assoc db :http (:body data))
    :transition :status-error})
 
-(defmethod handle-event :clicked
+(defn handle-clicked
   [db [_event-type {:keys [element] :as _data}]]
   (println _data)
   {:db (update db element inc)})
 
-(defmethod handle-event :keydown
+(defn handle-keydown
   [db [_event-type key]]
   (when (#{"h" "j" "k" "l"} key)
     (println key)
     {:db (update db (keyword key) inc)}))
 
-(defmethod handle-event :reset
+(defn handle-reset
   [_db _event]
   (println "Reset")
   {:transition :reset
-   :db {}
-   :dispatch [:init]})
+   :db         {}
+   :dispatch   [:init]})
 
-(defmulti handle-effect
-  (fn [effect _effect-data] effect))
+(def event-handler
+  {:init             handle-init
+   :good-http-result handle-good-http-result
+   :bad-http-result  handle-bad-http-result
+   :clicked          handle-clicked
+   :keydown          handle-keydown
+   :reset            handle-reset})
 
-(defmethod handle-effect :transition
+(defn handle-event
+  [event-handler db [event-type :as event]]
+  ((event-handler event-type) db event))
+
+(defn do-transition!
   [_effect-key transition]
   (let [old-state (:state @app-state)
         new-state (get-in fsm [old-state transition])]
     (println "From state" old-state "to state" new-state)
     (swap! app-state assoc :state new-state)))
 
-(defmethod handle-effect :db
+(defn do-db!
   [_effect-key new-db]
   (when-not (identical? new-db (:db @app-state))
     (swap! app-state assoc :db new-db)))
 
-(defmethod handle-effect :http
+(defn do-http!
   [_effect-key {:keys [_method _url on-success on-failure]}]
   (if (zero? (rand-int 3))
     (js/setTimeout
-      #(dispatch (conj on-failure {:message :server-error}))
+      #(dispatch! (conj on-failure {:body :bad}))
       (+ 2000 (rand-int 1000)))
     (js/setTimeout
-      #(dispatch (conj on-success {:message :server-good}))
+      #(dispatch! (conj on-success {:body :good}))
       (+ 2000 (rand-int 1000)))))
 
-(defmethod handle-effect :dispatch
+(defn do-dispatch!
   [_effect-key [event-type event-data :as event-v]]
-  (println ":dispatch event" event-type "with data" event-data)
-  (dispatch event-v))
+  (println ":dispatch! event" event-type "with data" event-data)
+  (dispatch! event-v))
+
+(def fx-handler
+  {:transition do-transition!
+   :db         do-db!
+   :http       do-http!
+   :dispatch   do-dispatch!})
 
 (defn do-effects!
-  [{:keys [db transition] :as effects}]
+  [fx-handler {:keys [db] :as effects}]
   (when db
-    (handle-effect :db db))
-  (doseq [[effect-key effect-value] (dissoc effects :db :transition)]
-    (handle-effect effect-key effect-value))
-  (when transition
-    (handle-effect :transition transition)))
+    ((fx-handler :db) :db db))
+  (doseq [[effect-key effect-value] (dissoc effects :db)]
+    ((fx-handler effect-key) effect-key effect-value)))
 
 (a/go-loop []
   (let [event   (a/<! events-ch)
-        effects (handle-event (:db @app-state) event)]
-    (do-effects! effects))
+        effects (handle-event event-handler (:db @app-state) event)]
+    (do-effects! fx-handler effects))
   (recur))
 
-(dispatch [:init {}])
+(def subscribe
+  {:h    (reagent.ratom/make-reaction
+           #(str "H - " (or (get-in @app-state [:db :h]) 0)))
+   :j    (reagent.ratom/make-reaction
+           #(str "j - " (or (get-in @app-state [:db :j]) 0)))
+   :k    (reagent.ratom/make-reaction
+           #(str "k - " (or (get-in @app-state [:db :k]) 0)))
+   :l    (reagent.ratom/make-reaction
+           #(str "L - " (or (get-in @app-state [:db :l]) 0)))
+   :http (reagent.ratom/make-reaction
+           #(str "Server status - " (name (or (get-in @app-state [:db :http])
+                                              :unknown))))})
+
+(dispatch! [:init {}])
 
 (defn app []
   [:main
    [:h1 "Evil navigation"]
    [:button
-    {:on-click #(dispatch [:clicked {:element :h}])}
+    {:on-click #(dispatch! [:clicked {:element :h}])}
     "H"]
    [:button
-    {:on-click #(dispatch [:clicked {:element :j}])}
+    {:on-click #(dispatch! [:clicked {:element :j}])}
     "J"]
    [:button
-    {:on-click #(dispatch [:clicked {:element :k}])}
+    {:on-click #(dispatch! [:clicked {:element :k}])}
     "K"]
    [:button
-    {:on-click #(dispatch [:clicked {:element :l}])}
+    {:on-click #(dispatch! [:clicked {:element :l}])}
     "L"]
    [:button
-    {:on-click #(dispatch [:reset])}
+    {:on-click #(dispatch! [:reset])}
     "Reset"]
+   [:ul
+    [:li
+     @(subscribe :h)]
+    [:li
+     @(subscribe :j)]
+    [:li
+     @(subscribe :k)]
+    [:li
+     @(subscribe :l)]]
+   [:p
+    @(subscribe :http)]
    [:pre
     {}
     @app-state]])
@@ -160,4 +196,4 @@
   ;; optionally touch your app-state to force rerendering depending on
   ;; your application
   ;; (swap! app-state update-in [:__figwheel_counter] inc)
-)
+  )
