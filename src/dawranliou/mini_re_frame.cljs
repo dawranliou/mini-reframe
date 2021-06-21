@@ -1,13 +1,12 @@
-(ns ^:figwheel-hooks dawranliou.async-reagent
+(ns ^:figwheel-hooks dawranliou.mini-re-frame
   (:require
    [goog.dom :as gdom]
    [goog.events :as gevents]
    [reagent.core :as reagent :refer [atom]]
    [reagent.ratom]
    [reagent.dom :as rdom]
+   [clojure.string :as str]
    [clojure.core.async :as a]))
-
-(defn multiply [a b] (* a b))
 
 (def events-ch (a/chan))
 
@@ -143,33 +142,29 @@
 
 (dispatch! [:init {}])
 
+(defn button [element-key]
+  [:button
+   {:on-click #(dispatch! [:clicked {:element element-key}])}
+   (str/upper-case (name element-key))])
+
+(defn li [element-key]
+  [:li @(subscribe element-key)])
+
 (defn app []
   [:main
    [:h1 "Evil navigation"]
-   [:button
-    {:on-click #(dispatch! [:clicked {:element :h}])}
-    "H"]
-   [:button
-    {:on-click #(dispatch! [:clicked {:element :j}])}
-    "J"]
-   [:button
-    {:on-click #(dispatch! [:clicked {:element :k}])}
-    "K"]
-   [:button
-    {:on-click #(dispatch! [:clicked {:element :l}])}
-    "L"]
+   [button :h]
+   [button :j]
+   [button :k]
+   [button :l]
    [:button
     {:on-click #(dispatch! [:reset])}
     "Reset"]
    [:ul
-    [:li
-     @(subscribe :h)]
-    [:li
-     @(subscribe :j)]
-    [:li
-     @(subscribe :k)]
-    [:li
-     @(subscribe :l)]]
+    [li :h]
+    [li :j]
+    [li :k]
+    [li :l]]
    [:p
     @(subscribe :http)]
    [:pre
