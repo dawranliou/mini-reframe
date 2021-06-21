@@ -10,6 +10,9 @@
 
 (def events-ch (a/chan))
 
+(defn dispatch [event]
+  (a/put! events-ch event))
+
 (defonce app-state (atom {:state :start :db {}}))
 
 (comment
@@ -25,7 +28,7 @@
 
 (defonce keydown-listener
   (gevents/listen js/document "keydown"
-                  #(a/put! events-ch [:keydown (.-key %)])))
+                  #(dispatch [:keydown (.-key %)])))
 
 (defmulti handle-event (fn [_db event] (first event)))
 
@@ -87,16 +90,16 @@
   [_effect-key {:keys [_method _url on-success on-failure]}]
   (if (zero? (rand-int 3))
     (js/setTimeout
-      #(a/put! events-ch (conj on-failure {:message :server-error}))
+      #(dispatch (conj on-failure {:message :server-error}))
       (+ 2000 (rand-int 1000)))
     (js/setTimeout
-      #(a/put! events-ch (conj on-success {:message :server-good}))
+      #(dispatch (conj on-success {:message :server-good}))
       (+ 2000 (rand-int 1000)))))
 
 (defmethod handle-effect :dispatch
   [_effect-key [event-type event-data :as event-v]]
   (println ":dispatch event" event-type "with data" event-data)
-  (a/put! events-ch event-v))
+  (dispatch event-v))
 
 (defn do-effects!
   [{:keys [db transition] :as effects}]
@@ -113,25 +116,25 @@
     (do-effects! effects))
   (recur))
 
-(a/put! events-ch [:init {}])
+(dispatch [:init {}])
 
 (defn app []
   [:main
    [:h1 "Evil navigation"]
    [:button
-    {:on-click #(a/put! events-ch [:clicked {:element :h}])}
+    {:on-click #(dispatch [:clicked {:element :h}])}
     "H"]
    [:button
-    {:on-click #(a/put! events-ch [:clicked {:element :j}])}
+    {:on-click #(dispatch [:clicked {:element :j}])}
     "J"]
    [:button
-    {:on-click #(a/put! events-ch [:clicked {:element :k}])}
+    {:on-click #(dispatch [:clicked {:element :k}])}
     "K"]
    [:button
-    {:on-click #(a/put! events-ch [:clicked {:element :l}])}
+    {:on-click #(dispatch [:clicked {:element :l}])}
     "L"]
    [:button
-    {:on-click #(a/put! events-ch [:reset])}
+    {:on-click #(dispatch [:reset])}
     "Reset"]
    [:pre
     {}
