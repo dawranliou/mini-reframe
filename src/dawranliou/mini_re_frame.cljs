@@ -11,16 +11,64 @@
    [clojure.string :as str]
    [clojure.core.async :as a]))
 
+;; Event loop abstraction
+
+(defn handle-event
+  [event-handler db [event-type :as event]]
+  ((event-handler event-type) db event))
+
+(defn do-effects!
+  [fx-handler page-state {:keys [db] :as effects}]
+  (when db
+    ((fx-handler :db) page-state :db db))
+  (doseq [[effect-key effect-value] (dissoc effects :db)]
+    ((fx-handler effect-key) page-state effect-key effect-value)))
+
+(defn start-event-loop!
+  [events-ch state event-handler fx-handler]
+  (a/go-loop []
+    (let [event   (a/<! events-ch)
+          effects (handle-event event-handler @state event)]
+      (do-effects! fx-handler state effects))
+    (recur)))
+
+;; App global state
+
+(defonce global-state (atom {}))
+
+(def global-events-ch (a/chan))
+
+(def global-event-handler
+  {:navigate (fn [db [_event-type new-match]]
+               (when new-match
+                 (let [old-match   (:current-route db)
+                       controllers (rfc/apply-controllers (:controllers old-match) new-match)]
+                   {:db (assoc db :current-route (assoc new-match :controllers controllers))})))})
+
+(def global-fx-handler
+  {:db (fn [state _effect-key new-db]
+         (when-not (identical? new-db @state)
+           (reset! state new-db)))})
+
+(def global-subscribe
+  {:current-route (reagent.ratom/make-reaction
+                    #(get-in @global-state [:current-route]))})
+
+(defn dispatch-global-event! [event]
+  (a/put! global-events-ch event))
+
+;; Page state
+
 (def events-ch (a/chan))
 
 (defn dispatch! [event]
   (a/put! events-ch event))
 
-(defonce app-state (atom {}))
+(defonce page-state (atom {}))
 
 (comment
-  @app-state
-  (js/console.log (first (:listeners @app-state))))
+  @page-state
+  (js/console.log (first (:listeners @page-state))))
 
 (defn handle-init
   [_db _event]
@@ -65,14 +113,6 @@
   [db _event]
   {:db (dissoc db :h :j :k :l)})
 
-(defn handle-navigate
-  [db [_event-type new-match]]
-  (when new-match
-    (let [old-match   (:current-route db)
-          controllers (rfc/apply-controllers (:controllers old-match) new-match)]
-      {:db (assoc db
-                  :current-route (assoc new-match :controllers controllers))})))
-
 (def event-handler
   {:init             handle-init
    :listened         handle-listened
@@ -81,20 +121,15 @@
    :bad-http-result  handle-bad-http-result
    :clicked          handle-clicked
    :keydown          handle-keydown
-   :reset            handle-reset
-   :navigate         handle-navigate})
-
-(defn handle-event
-  [event-handler db [event-type :as event]]
-  ((event-handler event-type) db event))
+   :reset            handle-reset})
 
 (defn do-db!
-  [_effect-key new-db]
-  (when-not (identical? new-db @app-state)
-    (reset! app-state new-db)))
+  [page-state _effect-key new-db]
+  (when-not (identical? new-db @page-state)
+    (reset! page-state new-db)))
 
 (defn do-http!
-  [_effect-key {:keys [_method _url on-success on-failure]}]
+  [_page-state _effect-key {:keys [_method _url on-success on-failure]}]
   (if (zero? (rand-int 3))
     (js/setTimeout
       #(dispatch! (conj on-failure {:body :bad}))
@@ -104,18 +139,18 @@
       (+ 2000 (rand-int 1000)))))
 
 (defn do-dispatch!
-  [_effect-key event-v]
+  [_page-state _effect-key event-v]
   (dispatch! event-v))
 
 (defn do-listen!
-  [_effect-key listeners]
+  [_page-state _effect-key listeners]
   (doseq [{:keys [src type listener]} listeners]
     (let [listener-key
           (gevents/listen src type #(dispatch! (conj listener %)))]
       (dispatch! [:listened listener-key]))))
 
 (defn do-unlisten!
-  [_effect-key listeners]
+  [_page-state _effect-key listeners]
   (doseq [listener listeners]
     (gevents/unlistenByKey listener)))
 
@@ -126,34 +161,20 @@
    :listen   do-listen!
    :unlisten do-unlisten!})
 
-(defn do-effects!
-  [fx-handler {:keys [db] :as effects}]
-  (when db
-    ((fx-handler :db) :db db))
-  (doseq [[effect-key effect-value] (dissoc effects :db)]
-    ((fx-handler effect-key) effect-key effect-value)))
-
-(a/go-loop []
-  (let [event   (a/<! events-ch)
-        effects (handle-event event-handler @app-state event)]
-    (do-effects! fx-handler effects))
-  (recur))
-
 (def subscribe
   {:h    (reagent.ratom/make-reaction
-           #(str "H - " (or (get-in @app-state [:h]) 0)))
+           #(str "H - " (or (get-in @page-state [:h]) 0)))
    :j    (reagent.ratom/make-reaction
-           #(str "j - " (or (get-in @app-state [:j]) 0)))
+           #(str "j - " (or (get-in @page-state [:j]) 0)))
    :k    (reagent.ratom/make-reaction
-           #(str "k - " (or (get-in @app-state [:k]) 0)))
+           #(str "k - " (or (get-in @page-state [:k]) 0)))
    :l    (reagent.ratom/make-reaction
-           #(str "L - " (or (get-in @app-state [:l]) 0)))
+           #(str "L - " (or (get-in @page-state [:l]) 0)))
    :http (reagent.ratom/make-reaction
-           #(str "Server status - " (name (or (get-in @app-state [:http])
-                                              :unknown))))
-   :current-route
-   (reagent.ratom/make-reaction
-     #(get-in @app-state [:current-route]))})
+           #(str "Server status - " (name (or (get-in @page-state [:http])
+                                              :unknown))))})
+
+;; Components
 
 (defn button [element-key]
   [:button
@@ -171,7 +192,7 @@
       [:a {:href "#/"} "/"]]
      [:li
       [:a {:href "#/evil"} "/evil"]]]]
-   (when-let [page @(subscribe :current-route)]
+   (when-let [page @(global-subscribe :current-route)]
      [(-> page :data :page)])])
 
 (defn home-page []
@@ -195,14 +216,24 @@
     [li :l]]
    [:p @(subscribe :http)]])
 
+;; Router
+
 (def routes
   [["/" {:name ::home
-         :page home-page}]
+         :page home-page
+         :controllers
+         [{:start #(println "Starting /")
+           :stop #(println "Stopping /")}]}]
    ["/evil" {:name ::evil-page
              :page evil-page
              :controllers
-             [{:start #(dispatch! [:init])
-               :stop  #(dispatch! [:teardown])}]}]])
+             [{:start (fn [& params]
+                        (println "Starting /evil")
+                        (start-event-loop! events-ch page-state event-handler fx-handler)
+                        (dispatch! [:init]))
+               :stop  (fn [& params]
+                        (println "Stopping /evil")
+                        (dispatch! [:teardown]))}]}]])
 
 (def router
   (rf/router routes))
@@ -220,7 +251,8 @@
 (defn init! []
   ;; conditionally start your application based on the presence of an "app" element
   ;; this is particularly helpful for testing this ns without launching the app
-  (rfe/start! router #(when % (dispatch! [:navigate %])) {:use-fragment true})
+  (start-event-loop! global-events-ch global-state global-event-handler global-fx-handler)
+  (rfe/start! router #(when % (dispatch-global-event! [:navigate %])) {:use-fragment true})
   (mount-app-element))
 
 (init!)
