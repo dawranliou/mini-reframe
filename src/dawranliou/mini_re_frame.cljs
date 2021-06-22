@@ -14,23 +14,38 @@
 ;; Event loop abstraction
 
 (defn handle-event
-  [event-handler db [event-type :as event]]
-  ((event-handler event-type) db event))
+  [db event-handler [event-type & _event-params :as event-v]]
+  {:event   event-v
+   :effects ((event-handler event-type) db event-v)})
 
-(defn do-effects!
-  [fx-handler page-state {:keys [db] :as effects}]
+(defn handle-fx
+  [state fx-handler {event                        :event
+                     {:keys [db] :as effects-map} :effects}]
+  ;; Do the :db effect before any other effects
   (when db
-    ((fx-handler :db) page-state :db db))
-  (doseq [[effect-key effect-value] (dissoc effects :db)]
-    ((fx-handler effect-key) page-state effect-key effect-value)))
+    ((fx-handler :db) state :db db))
+  (doseq [[effect-key effect-value] (dissoc effects-map :db)]
+    ((fx-handler effect-key) state effect-key effect-value))
+  ;; Explicitly return the event
+  event)
+
+(defn event-xf
+  [state event-handler fx-handler]
+  (comp (map #(handle-event @state event-handler %))
+        (map #(handle-fx state fx-handler %))))
+
+(def event-history-ch (a/chan (a/sliding-buffer 10)))
+
+(a/go-loop []
+  (js/console.log (a/<! event-history-ch))
+  (recur))
 
 (defn -start-event-loop!
-  [events-ch state event-handler fx-handler]
-  (a/go-loop []
-    (let [event   (a/<! events-ch)
-          effects (handle-event event-handler @state event)]
-      (do-effects! fx-handler state effects))
-    (recur)))
+  [in-ch state event-handler fx-handler]
+  (a/pipeline 1
+              event-history-ch
+              (event-xf state event-handler fx-handler)
+              in-ch))
 
 (def start-event-loop! (memoize -start-event-loop!))
 
@@ -40,6 +55,9 @@
 
 (def global-events-ch (a/chan))
 
+(defn dispatch-global-event! [event]
+  (a/put! global-events-ch event))
+
 (def global-event-handler
   {:navigate
    (fn [db [_event-type new-match]]
@@ -47,19 +65,21 @@
        (let [old-controllers (:controllers (:current-route db))
              controllers     (rfc/apply-controllers old-controllers new-match)
              new-route       (assoc new-match :controllers controllers)]
-         {:db (assoc db :current-route new-route)})))})
+         {:db (assoc db :current-route new-route)})))
+   :log
+   (fn [_db [_event-type data]]
+     {:log data})})
 
 (def global-fx-handler
-  {:db (fn [state _effect-key new-db]
-         (when-not (identical? new-db @state)
-           (reset! state new-db)))})
+  {:db  (fn [state _effect-key new-db]
+          (when-not (identical? new-db @state)
+            (reset! state new-db)))
+   :log (fn [_state _effect-key data]
+          (js/console.log data))})
 
 (def global-subscribe
   {:current-route (reagent.ratom/make-reaction
                     #(get-in @global-state [:current-route]))})
-
-(defn dispatch-global-event! [event]
-  (a/put! global-events-ch event))
 
 ;; Page state
 
@@ -70,9 +90,24 @@
 
 (defonce page-state (atom {}))
 
+(def subscribe
+  {:h    (reagent.ratom/make-reaction
+           #(str "H - " (or (get-in @page-state [:h]) 0)))
+   :j    (reagent.ratom/make-reaction
+           #(str "j - " (or (get-in @page-state [:j]) 0)))
+   :k    (reagent.ratom/make-reaction
+           #(str "k - " (or (get-in @page-state [:k]) 0)))
+   :l    (reagent.ratom/make-reaction
+           #(str "L - " (or (get-in @page-state [:l]) 0)))
+   :http (reagent.ratom/make-reaction
+           #(str "Server status - "
+                 (name (or (get-in @page-state [:http]) :unknown))))})
+
 (comment
+  @global-state
   @page-state
-  (js/console.log (first (:listeners @page-state))))
+  (js/console.log (first (:listeners @page-state)))
+  @(subscribe :h))
 
 (defn handle-init
   [_db _event]
@@ -132,6 +167,7 @@
 (defn do-http!
   [_page-state _effect-key {:keys [_method _url on-success on-failure]}]
   (if (zero? (rand-int 3))
+    ;; Simulate HTTP failures once out of 3 tries
     (js/setTimeout
       #(dispatch! (conj on-failure {:body :bad}))
       (+ 2000 (rand-int 1000)))
@@ -142,6 +178,10 @@
 (defn do-dispatch!
   [_page-state _effect-key event-v]
   (dispatch! event-v))
+
+(defn do-dispatch-global!
+  [_page-state _effect-key event-v]
+  (dispatch-global-event! event-v))
 
 (defn do-listen!
   [_page-state _effect-key listeners]
@@ -156,24 +196,12 @@
     (gevents/unlistenByKey listener)))
 
 (def fx-handler
-  {:db       do-db!
-   :http     do-http!
-   :dispatch do-dispatch!
-   :listen   do-listen!
-   :unlisten do-unlisten!})
-
-(def subscribe
-  {:h    (reagent.ratom/make-reaction
-           #(str "H - " (or (get-in @page-state [:h]) 0)))
-   :j    (reagent.ratom/make-reaction
-           #(str "j - " (or (get-in @page-state [:j]) 0)))
-   :k    (reagent.ratom/make-reaction
-           #(str "k - " (or (get-in @page-state [:k]) 0)))
-   :l    (reagent.ratom/make-reaction
-           #(str "L - " (or (get-in @page-state [:l]) 0)))
-   :http (reagent.ratom/make-reaction
-           #(str "Server status - " (name (or (get-in @page-state [:http])
-                                              :unknown))))})
+  {:db              do-db!
+   :http            do-http!
+   :dispatch        do-dispatch!
+   :dispatch-global do-dispatch-global!
+   :listen          do-listen!
+   :unlisten        do-unlisten!})
 
 ;; Components
 
@@ -195,21 +223,11 @@
 (defn evil-page []
   [:<>
    [:h1 "Evil"]
-   [:button
-    {:on-click #(dispatch! [:clicked {:element :h}])}
-    "H"]
-   [:button
-    {:on-click #(dispatch! [:clicked {:element :j}])}
-    "J"]
-   [:button
-    {:on-click #(dispatch! [:clicked {:element :k}])}
-    "K"]
-   [:button
-    {:on-click #(dispatch! [:clicked {:element :l}])}
-    "L"]
-   [:button
-    {:on-click #(dispatch! [:reset])}
-    "Reset"]
+   [:button {:on-click #(dispatch! [:clicked {:element :h}])} "H"]
+   [:button {:on-click #(dispatch! [:clicked {:element :j}])} "J"]
+   [:button {:on-click #(dispatch! [:clicked {:element :k}])} "K"]
+   [:button {:on-click #(dispatch! [:clicked {:element :l}])} "L"]
+   [:button {:on-click #(dispatch! [:reset])} "Reset"]
    [:ul
     [:li @(subscribe :h)]
     [:li @(subscribe :j)]
@@ -223,20 +241,20 @@
   [["/" {:name ::home
          :page home-page
          :controllers
-         [{:start #(println "Starting /")
-           :stop  #(println "Stopping /")}]}]
+         [{:start #(dispatch-global-event! [:log "Starting /"])
+           :stop  #(dispatch-global-event! [:log "Stopping /"])}]}]
    ["/evil" {:name ::evil-page
              :page evil-page
              :controllers
              [{:start (fn [& _params]
-                        (println "Starting /evil")
+                        (dispatch-global-event! [:log "Starting /evil"])
                         (start-event-loop! events-ch
                                            page-state
                                            event-handler
                                            fx-handler)
                         (dispatch! [:init]))
                :stop  (fn [& _params]
-                        (println "Stopping /evil")
+                        (dispatch-global-event! [:log "Stopping /evil"])
                         (dispatch! [:teardown]))}]}]])
 
 (def router
