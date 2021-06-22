@@ -1,52 +1,14 @@
 (ns ^:figwheel-hooks mini-reframe.app
   (:require
-   [clojure.core.async :as a]
    [goog.dom :as gdom]
    [mini-reframe.evil-page :as evil-page]
    [mini-reframe.global :as global]
    [mini-reframe.home-page :as home-page]
+   [mini-reframe.event-loop :as event-loop]
    [reagent.dom :as rdom]
    [reagent.ratom]
    [reitit.frontend :as rf]
    [reitit.frontend.easy :as rfe]))
-
-;; Event loop abstraction
-
-(defn handle-event
-  [db event-handler [event-type & _event-params :as event-v]]
-  {:event   event-v
-   :effects ((event-handler event-type) db event-v)})
-
-(defn handle-fx
-  [state fx-handler {event                        :event
-                     {:keys [db] :as effects-map} :effects}]
-  ;; Do the :db effect before any other effects
-  (when db
-    ((fx-handler :db) state :db db))
-  (doseq [[effect-key effect-value] (dissoc effects-map :db)]
-    ((fx-handler effect-key) state effect-key effect-value))
-  ;; Explicitly return the event
-  event)
-
-(defn event-xf
-  [state event-handler fx-handler]
-  (comp (map #(handle-event @state event-handler %))
-        (map #(handle-fx state fx-handler %))))
-
-(def event-history-ch (a/chan (a/sliding-buffer 10)))
-
-(a/go-loop []
-  (js/console.log (a/<! event-history-ch))
-  (recur))
-
-(defn -start-event-loop!
-  [in-ch state event-handler fx-handler]
-  (a/pipeline 1
-              event-history-ch
-              (event-xf state event-handler fx-handler)
-              in-ch))
-
-(def start-event-loop! (memoize -start-event-loop!))
 
 ;; Components
 
@@ -75,10 +37,10 @@
              :controllers
              [{:start (fn [& _params]
                         (global/dispatch! [:log "Starting /evil"])
-                        (start-event-loop! evil-page/events-ch
-                                           evil-page/page-state
-                                           evil-page/event-handler
-                                           evil-page/fx-handler)
+                        (event-loop/start-event-loop! evil-page/events-ch
+                                                      evil-page/page-state
+                                                      evil-page/event-handler
+                                                      evil-page/fx-handler)
                         (evil-page/dispatch! [:init]))
                :stop  (fn [& _params]
                         (global/dispatch! [:log "Stopping /evil"])
@@ -101,10 +63,10 @@
   ;; conditionally start your application based on the presence of an "app"
   ;; element this is particularly helpful for testing this ns without launching
   ;; the app
-  (start-event-loop! global/events-ch
-                     global/state
-                     global/event-handler
-                     global/fx-handler)
+  (event-loop/start-event-loop! global/events-ch
+                                global/state
+                                global/event-handler
+                                global/fx-handler)
   (rfe/start! router
               #(when % (global/dispatch! [:navigate %]))
               {:use-fragment true})
