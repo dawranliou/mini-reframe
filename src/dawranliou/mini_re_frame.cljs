@@ -24,13 +24,15 @@
   (doseq [[effect-key effect-value] (dissoc effects :db)]
     ((fx-handler effect-key) page-state effect-key effect-value)))
 
-(defn start-event-loop!
+(defn -start-event-loop!
   [events-ch state event-handler fx-handler]
   (a/go-loop []
     (let [event   (a/<! events-ch)
           effects (handle-event event-handler @state event)]
       (do-effects! fx-handler state effects))
     (recur)))
+
+(def start-event-loop! (memoize -start-event-loop!))
 
 ;; App global state
 
