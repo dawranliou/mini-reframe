@@ -41,11 +41,13 @@
 (def global-events-ch (a/chan))
 
 (def global-event-handler
-  {:navigate (fn [db [_event-type new-match]]
-               (when new-match
-                 (let [old-match   (:current-route db)
-                       controllers (rfc/apply-controllers (:controllers old-match) new-match)]
-                   {:db (assoc db :current-route (assoc new-match :controllers controllers))})))})
+  {:navigate
+   (fn [db [_event-type new-match]]
+     (when new-match
+       (let [old-controllers (:controllers (:current-route db))
+             controllers     (rfc/apply-controllers old-controllers new-match)
+             new-route       (assoc new-match :controllers controllers)]
+         {:db (assoc db :current-route new-route)})))})
 
 (def global-fx-handler
   {:db (fn [state _effect-key new-db]
@@ -74,7 +76,6 @@
 
 (defn handle-init
   [_db _event]
-  (println "Retrieving data...")
   {:listen [{:src      js/document
              :type     "keydown"
              :listener [:keydown]}]
@@ -94,12 +95,10 @@
 
 (defn handle-good-http-result
   [db [_event-type data]]
-  (println "Retrieved data" data)
   {:db (assoc db :http (:body data))})
 
 (defn handle-bad-http-result
   [db [_event-type data]]
-  (println "Error retrieving data" data)
   {:db (assoc db :http (:body data))})
 
 (defn handle-clicked
@@ -178,14 +177,6 @@
 
 ;; Components
 
-(defn button [element-key]
-  [:button
-   {:on-click #(dispatch! [:clicked {:element element-key}])}
-   (str/upper-case (name element-key))])
-
-(defn li [element-key]
-  [:li @(subscribe element-key)])
-
 (defn app []
   [:<>
    [:nav
@@ -195,27 +186,35 @@
      [:li
       [:a {:href "#/evil"} "/evil"]]]]
    (when-let [page @(global-subscribe :current-route)]
-     [(-> page :data :page)])])
+     [:main
+      [(-> page :data :page)]])])
 
 (defn home-page []
   [:h1 "Home"])
 
 (defn evil-page []
-  [:h1 "Evil"]
-  [:main
-   [:h1 "Evil navigation"]
-   [button :h]
-   [button :j]
-   [button :k]
-   [button :l]
+  [:<>
+   [:h1 "Evil"]
+   [:button
+    {:on-click #(dispatch! [:clicked {:element :h}])}
+    "H"]
+   [:button
+    {:on-click #(dispatch! [:clicked {:element :j}])}
+    "J"]
+   [:button
+    {:on-click #(dispatch! [:clicked {:element :k}])}
+    "K"]
+   [:button
+    {:on-click #(dispatch! [:clicked {:element :l}])}
+    "L"]
    [:button
     {:on-click #(dispatch! [:reset])}
     "Reset"]
    [:ul
-    [li :h]
-    [li :j]
-    [li :k]
-    [li :l]]
+    [:li @(subscribe :h)]
+    [:li @(subscribe :j)]
+    [:li @(subscribe :k)]
+    [:li @(subscribe :l)]]
    [:p @(subscribe :http)]])
 
 ;; Router
@@ -225,15 +224,18 @@
          :page home-page
          :controllers
          [{:start #(println "Starting /")
-           :stop #(println "Stopping /")}]}]
+           :stop  #(println "Stopping /")}]}]
    ["/evil" {:name ::evil-page
              :page evil-page
              :controllers
-             [{:start (fn [& params]
+             [{:start (fn [& _params]
                         (println "Starting /evil")
-                        (start-event-loop! events-ch page-state event-handler fx-handler)
+                        (start-event-loop! events-ch
+                                           page-state
+                                           event-handler
+                                           fx-handler)
                         (dispatch! [:init]))
-               :stop  (fn [& params]
+               :stop  (fn [& _params]
                         (println "Stopping /evil")
                         (dispatch! [:teardown]))}]}]])
 
@@ -251,10 +253,16 @@
     (mount el)))
 
 (defn init! []
-  ;; conditionally start your application based on the presence of an "app" element
-  ;; this is particularly helpful for testing this ns without launching the app
-  (start-event-loop! global-events-ch global-state global-event-handler global-fx-handler)
-  (rfe/start! router #(when % (dispatch-global-event! [:navigate %])) {:use-fragment true})
+  ;; conditionally start your application based on the presence of an "app"
+  ;; element this is particularly helpful for testing this ns without launching
+  ;; the app
+  (start-event-loop! global-events-ch
+                     global-state
+                     global-event-handler
+                     global-fx-handler)
+  (rfe/start! router
+              #(when % (dispatch-global-event! [:navigate %]))
+              {:use-fragment true})
   (mount-app-element))
 
 (init!)
