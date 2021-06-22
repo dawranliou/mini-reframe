@@ -19,21 +19,31 @@
   event)
 
 (defn event-xf
+  "Creates a transducer that takes in an event and makes the effects."
   [state event-handler fx-handler]
   (comp (map #(handle-event @state event-handler %))
         (map #(handle-fx state fx-handler %))))
 
-(def event-history-ch (a/chan (a/sliding-buffer 10)))
+(def event-history-ch
+  "A channel that aggregates the event history."
+  (a/chan (a/sliding-buffer 10)))
 
 (a/go-loop []
   (js/console.log (a/<! event-history-ch))
   (recur))
 
 (defn -start-event-loop!
+  "For every event put onto the in-ch, run the stateful event-xf to generate the
+  side effects and put the event onto the event-history-ch."
   [in-ch state event-handler fx-handler]
   (a/pipeline 1
               event-history-ch
               (event-xf state event-handler fx-handler)
               in-ch))
 
-(def start-event-loop! (memoize -start-event-loop!))
+(def start-event-loop!
+  "The memoized version of -start-event-loop!.
+
+  For every event put onto the in-ch, run the stateful event-xf to generate the
+  side effects and put the event onto the event-history-ch."
+  (memoize -start-event-loop!))
