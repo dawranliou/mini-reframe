@@ -1,15 +1,10 @@
-(ns dawranliou.evil-page
+(ns mini-reframe.evil-page
   (:require
-   [goog.dom :as gdom]
+   [clojure.core.async :as a]
    [goog.events :as gevents]
+   [mini-reframe.global :as global]
    [reagent.core :as reagent :refer [atom]]
-   [reagent.ratom]
-   [reagent.dom :as rdom]
-   [reitit.frontend :as rf]
-   [reitit.frontend.easy :as rfe]
-   [reitit.frontend.controllers :as rfc]
-   [dawranliou.global :as global]
-   [clojure.core.async :as a]))
+   [reagent.ratom]))
 
 ;; Page state
 

@@ -1,14 +1,14 @@
-(ns ^:figwheel-hooks dawranliou.mini-re-frame
+(ns ^:figwheel-hooks mini-reframe.app
   (:require
-   [goog.dom :as gdom]
-   [reagent.ratom]
-   [reagent.dom :as rdom]
-   [reitit.frontend :as rf]
-   [reitit.frontend.easy :as rfe]
    [clojure.core.async :as a]
-   [dawranliou.global :as global]
-   [dawranliou.home-page :as home-page]
-   [dawranliou.evil-page :as evil-page]))
+   [goog.dom :as gdom]
+   [mini-reframe.evil-page :as evil-page]
+   [mini-reframe.global :as global]
+   [mini-reframe.home-page :as home-page]
+   [reagent.dom :as rdom]
+   [reagent.ratom]
+   [reitit.frontend :as rf]
+   [reitit.frontend.easy :as rfe]))
 
 ;; Event loop abstraction
 

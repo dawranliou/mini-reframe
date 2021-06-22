@@ -1,9 +1,9 @@
-(ns dawranliou.global
+(ns mini-reframe.global
   (:require
+   [clojure.core.async :as a]
    [reagent.core :as reagent :refer [atom]]
    [reagent.ratom]
-   [reitit.frontend.controllers :as rfc]
-   [clojure.core.async :as a]))
+   [reitit.frontend.controllers :as rfc]))
 
 ;; App global state
 

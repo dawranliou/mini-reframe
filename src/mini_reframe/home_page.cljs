@@ -1,4 +1,4 @@
-(ns dawranliou.home-page)
+(ns mini-reframe.home-page)
 
 (defn main []
   [:h1 "Home"])

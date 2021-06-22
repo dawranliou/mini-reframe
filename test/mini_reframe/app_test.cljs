@@ -1,7 +1,7 @@
-(ns dawranliou.mini-re-frame-test
+(ns mini-reframe.app-test
     (:require
      [cljs.test :refer-macros [deftest is testing]]
-     [dawranliou.mini-re-frame]))
+     [mini-reframe.app]))
 
 (deftest multiply-test
   (is false))
