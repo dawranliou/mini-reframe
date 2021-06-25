@@ -1,10 +1,22 @@
 # mini-reframe
 
-FIXME: Write a one-line description of your library/project.
-
 ## Overview
 
-FIXME: Write a paragraph about the library/project and highlight its goals.
+After spending some time studying the wonderful [re-frame][1] source code, I
+created the `mini-reframe` demo in the attempt to replicate what I think is the
+core of the re-frame framework. Also, there are some tweaks to fit my
+personal tastes. Since the core of the mini-reframe is so small, I don't think
+I'd release it as a library/framework. If you think it's going to help your
+project, feel free to copy and paste the `mini-reframe.event-loop` ns. That's
+all you need :)
+
+## Why mini?
+
+Mini-reframe is mini in a few aspects:
+
+- Core is mini: the core of mini-reframe is the `mini-reframe.event-loop` ns,
+  which is 53 LoC with doc-string and comments at this point.
+- Scope is mini: there's no global app-state or global handler registry.
 
 ## Development
 
@@ -32,6 +44,7 @@ To create a production build run:
 
 ## License
 
-Copyright © 2018 FIXME
+Copyright © 2018 Daw-Ran Liou
 
-Distributed under the Eclipse Public License either version 1.0 or (at your option) any later version.
+Distributed under the Eclipse Public License either version 1.0 or (at your
+option) any later version.
