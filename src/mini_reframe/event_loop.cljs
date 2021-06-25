@@ -28,13 +28,16 @@
   "A channel that aggregates the event history."
   (a/chan (a/sliding-buffer 10)))
 
-(a/go-loop []
-  (js/console.log (a/<! event-history-ch))
-  (recur))
+(comment
+  ;; Evaluate this to print out the events
+  (a/go-loop []
+    (js/console.log (a/<! event-history-ch))
+    (recur)))
 
 (defn -start-event-loop!
   "For every event put onto the in-ch, run the stateful event-xf to generate the
-  side effects and put the event onto the event-history-ch."
+  side effects and put the event onto the event-history-ch. The event-xf is
+  created by the state, the event-handler map, and the fx-handler map."
   [in-ch state event-handler fx-handler]
   (a/pipeline 1
               event-history-ch
@@ -45,5 +48,6 @@
   "The memoized version of -start-event-loop!.
 
   For every event put onto the in-ch, run the stateful event-xf to generate the
-  side effects and put the event onto the event-history-ch."
+  side effects and put the event onto the event-history-ch. The event-xf is
+  created by the state, the event-handler map, and the fx-handler map."
   (memoize -start-event-loop!))
