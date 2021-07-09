@@ -110,10 +110,9 @@ To create a production build run:
 
 ## License
 
-Copyright © 2018 Daw-Ran Liou
+Copyright © 2021 Daw-Ran Liou
 
-Distributed under the Eclipse Public License either version 1.0 or (at your
-option) any later version.
+Distributed under the MIT License.
 
 [1]:https://github.com/day8/re-frame/
 [2]:https://github.com/day8/re-frame-http-fx
