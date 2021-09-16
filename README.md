@@ -1,5 +1,9 @@
 # mini-reframe
 
+_There's a companion article ["Implementing An Event-Driven ClojureScript
+Mini-Framework With Core.Async"][blog post] on my blog if you want to know more
+about this repo._
+
 ## Overview
 
 After spending some time studying the wonderful [`re-frame`][1] source code, I
@@ -116,3 +120,4 @@ Distributed under the MIT License.
 
 [1]:https://github.com/day8/re-frame/
 [2]:https://github.com/day8/re-frame-http-fx
+[blog post]:https://dawranliou.com/blog/event-driven-clojurescript-front-end-with-core-async/
